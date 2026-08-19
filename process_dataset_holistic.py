@@ -62,97 +62,107 @@ def process_dataset(dataset_dir, output_json_path, output_training_json_path):
     word_folders = [f.path for f in os.scandir(dataset_dir) if f.is_dir()]
     print(f"Found {len(word_folders)} word folders.")
 
-    with HandLandmarker.create_from_options(hand_options) as hand_landmarker, \
-         PoseLandmarker.create_from_options(pose_options) as pose_landmarker:
-         
-        local_timestamp_ms = 0
-        for folder in tqdm(word_folders, desc="Processing Words"):
-            word = os.path.basename(folder).lower()
-            
-            # Skip if already processed
-            if word in all_words_data and len(all_words_data[word]) > 0:
-                continue
-
-            video_files = glob.glob(os.path.join(folder, "*.mp4"))
-            if not video_files:
-                continue
-            
-            word_sequences = []
-            
-            for video_path in video_files:
-                cap = cv2.VideoCapture(video_path)
-                frame_number = 0
-                word_frames = []
+    try:
+        with HandLandmarker.create_from_options(hand_options) as hand_landmarker, \
+             PoseLandmarker.create_from_options(pose_options) as pose_landmarker:
+             
+            local_timestamp_ms = 0
+            for folder in tqdm(word_folders, desc="Processing Words"):
+                word = os.path.basename(folder).lower()
                 
-                while cap.isOpened():
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                        
-                    frame = cv2.resize(frame, (800, 750))
-                    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
-                    
-                    timestamp_ms = local_timestamp_ms
-                    local_timestamp_ms += 33
-                    
-                    hand_result = hand_landmarker.detect_for_video(mp_image, timestamp_ms)
-                    pose_result = pose_landmarker.detect_for_video(mp_image, timestamp_ms)
-                    
-                    frame_data = {
-                        "Frame": frame_number,
-                        "Pose Coordinates": [],
-                        "Left Hand Coordinates": [],
-                        "Right Hand Coordinates": []
-                    }
-                    
-                    # Extract Pose (Shoulders, Elbows, Wrists)
-                    if pose_result.pose_landmarks and len(pose_result.pose_landmarks) > 0:
-                        landmarks = pose_result.pose_landmarks[0]
-                        for idx, landmark in enumerate(landmarks):
-                            if idx in [11, 12, 13, 14, 15, 16]: 
-                                frame_data["Pose Coordinates"].append({
-                                    "Joint Index": idx,
-                                    "Coordinates": [landmark.x, landmark.y, landmark.z]
-                                })
+                # Skip if already processed
+                if word in all_words_data and len(all_words_data[word]) > 0:
+                    continue
 
-                    # Extract Hands
-                    if hand_result.hand_landmarks:
-                        for i in range(len(hand_result.hand_landmarks)):
-                            hand_landmarks = hand_result.hand_landmarks[i]
-                            handedness = hand_result.handedness[i][0].category_name
+                video_files = glob.glob(os.path.join(folder, "*.mp4"))
+                if not video_files:
+                    continue
+                
+                word_sequences = []
+                
+                for video_path in video_files:
+                    cap = cv2.VideoCapture(video_path)
+                    frame_number = 0
+                    word_frames = []
+                    
+                    while cap.isOpened():
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
                             
-                            coords = []
-                            for idx, landmark in enumerate(hand_landmarks):
-                                coords.append({
-                                    "Joint Index": idx,
-                                    "Coordinates": [landmark.x, landmark.y, landmark.z]
-                                })
-                                
-                            if handedness == "Left":
-                                frame_data["Left Hand Coordinates"] = coords
-                            else:
-                                frame_data["Right Hand Coordinates"] = coords
-                    
-                    word_frames.append(frame_data)
-                    frame_number += 1
-                    
-                cap.release()
-                
-                if len(word_frames) > 0:
-                    word_sequences.append(word_frames)
-            
-            if len(word_sequences) > 0:
-                all_words_data[word] = word_sequences[0]
-                training_data[word] = word_sequences
-                
-                # Save progress periodically
-                if len(all_words_data) % 50 == 0:
-                    with open(output_json_path, 'w') as f:
-                        json.dump(all_words_data, f, indent=4)
-                    with open(output_training_json_path, 'w') as f:
-                        json.dump(training_data, f, indent=4)
+                        frame = cv2.resize(frame, (800, 750))
+                        image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
                         
+                        timestamp_ms = local_timestamp_ms
+                        local_timestamp_ms += 33
+                        
+                        hand_result = hand_landmarker.detect_for_video(mp_image, timestamp_ms)
+                        pose_result = pose_landmarker.detect_for_video(mp_image, timestamp_ms)
+                        
+                        frame_data = {
+                            "Frame": frame_number,
+                            "Pose Coordinates": [],
+                            "Left Hand Coordinates": [],
+                            "Right Hand Coordinates": []
+                        }
+                        
+                        # Extract Pose (Shoulders, Elbows, Wrists)
+                        if pose_result.pose_landmarks and len(pose_result.pose_landmarks) > 0:
+                            landmarks = pose_result.pose_landmarks[0]
+                            for idx, landmark in enumerate(landmarks):
+                                if idx in [11, 12, 13, 14, 15, 16]: 
+                                    frame_data["Pose Coordinates"].append({
+                                        "Joint Index": idx,
+                                        "Coordinates": [landmark.x, landmark.y, landmark.z]
+                                    })
+
+                        # Extract Hands
+                        if hand_result.hand_landmarks:
+                            for i in range(len(hand_result.hand_landmarks)):
+                                hand_landmarks = hand_result.hand_landmarks[i]
+                                handedness = hand_result.handedness[i][0].category_name
+                                
+                                coords = []
+                                for idx, landmark in enumerate(hand_landmarks):
+                                    coords.append({
+                                        "Joint Index": idx,
+                                        "Coordinates": [landmark.x, landmark.y, landmark.z]
+                                    })
+                                    
+                                if handedness == "Left":
+                                    frame_data["Left Hand Coordinates"] = coords
+                                else:
+                                    frame_data["Right Hand Coordinates"] = coords
+                        
+                        word_frames.append(frame_data)
+                        frame_number += 1
+                        
+                    cap.release()
+                    
+                    if len(word_frames) > 0:
+                        word_sequences.append(word_frames)
+                
+                if len(word_sequences) > 0:
+                    all_words_data[word] = word_sequences[0]
+                    training_data[word] = word_sequences
+                    
+                    # Save progress periodically (every 5 words so less progress is lost)
+                    if len(all_words_data) % 5 == 0:
+                        with open(output_json_path, 'w') as f:
+                            json.dump(all_words_data, f, indent=4)
+                        with open(output_training_json_path, 'w') as f:
+                            json.dump(training_data, f, indent=4)
+                            
+    except KeyboardInterrupt:
+        print("\nProcess interrupted by user! Saving current progress safely...")
+        with open(output_json_path, 'w') as f:
+            json.dump(all_words_data, f, indent=4)
+        with open(output_training_json_path, 'w') as f:
+            json.dump(training_data, f, indent=4)
+        print("Progress saved safely! You can resume later.")
+        return
+
     # Final save
     with open(output_json_path, 'w') as f:
         json.dump(all_words_data, f, indent=4)
