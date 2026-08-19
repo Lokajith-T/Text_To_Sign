@@ -12,7 +12,7 @@ def download_model_if_needed(model_name, url):
         urllib.request.urlretrieve(url, model_name)
         print("Download complete.")
 
-def process_dataset(dataset_dir, output_json_path):
+def process_dataset(dataset_dir, output_json_path, output_training_json_path):
     print(f"Processing dataset in: {dataset_dir}")
     
     # Download models if needed (MediaPipe Tasks API requires physical model files)
@@ -48,10 +48,13 @@ def process_dataset(dataset_dir, output_json_path):
 
     # Load existing progress if any
     all_words_data = {}
-    if os.path.exists(output_json_path):
+    training_data = {}
+    if os.path.exists(output_json_path) and os.path.exists(output_training_json_path):
         try:
             with open(output_json_path, 'r') as f:
                 all_words_data = json.load(f)
+            with open(output_training_json_path, 'r') as f:
+                training_data = json.load(f)
             print(f"Loaded existing data for {len(all_words_data)} words.")
         except Exception as e:
             print(f"Error loading existing JSON, starting fresh: {e}")
@@ -70,92 +73,100 @@ def process_dataset(dataset_dir, output_json_path):
             if word in all_words_data and len(all_words_data[word]) > 0:
                 continue
 
-            # Find the first mp4 video in the folder
             video_files = glob.glob(os.path.join(folder, "*.mp4"))
             if not video_files:
                 continue
             
-            video_path = video_files[0]
+            word_sequences = []
             
-            cap = cv2.VideoCapture(video_path)
-            
-            frame_number = 0
-            word_frames = []
-            
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                    
-                frame = cv2.resize(frame, (800, 750))
-                image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
+            for video_path in video_files:
+                cap = cv2.VideoCapture(video_path)
+                frame_number = 0
+                word_frames = []
                 
-                timestamp_ms = local_timestamp_ms
-                local_timestamp_ms += 33
-                
-                hand_result = hand_landmarker.detect_for_video(mp_image, timestamp_ms)
-                pose_result = pose_landmarker.detect_for_video(mp_image, timestamp_ms)
-                
-                frame_data = {
-                    "Frame": frame_number,
-                    "Pose Coordinates": [],
-                    "Left Hand Coordinates": [],
-                    "Right Hand Coordinates": []
-                }
-                
-                # Extract Pose (Shoulders, Elbows, Wrists)
-                if pose_result.pose_landmarks and len(pose_result.pose_landmarks) > 0:
-                    landmarks = pose_result.pose_landmarks[0]
-                    for idx, landmark in enumerate(landmarks):
-                        if idx in [11, 12, 13, 14, 15, 16]: 
-                            frame_data["Pose Coordinates"].append({
-                                "Joint Index": idx,
-                                "Coordinates": [landmark.x, landmark.y, landmark.z]
-                            })
-
-                # Extract Hands
-                if hand_result.hand_landmarks:
-                    for i in range(len(hand_result.hand_landmarks)):
-                        hand_landmarks = hand_result.hand_landmarks[i]
-                        handedness = hand_result.handedness[i][0].category_name
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
                         
-                        coords = []
-                        for idx, landmark in enumerate(hand_landmarks):
-                            coords.append({
-                                "Joint Index": idx,
-                                "Coordinates": [landmark.x, landmark.y, landmark.z]
-                            })
+                    frame = cv2.resize(frame, (800, 750))
+                    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
+                    
+                    timestamp_ms = local_timestamp_ms
+                    local_timestamp_ms += 33
+                    
+                    hand_result = hand_landmarker.detect_for_video(mp_image, timestamp_ms)
+                    pose_result = pose_landmarker.detect_for_video(mp_image, timestamp_ms)
+                    
+                    frame_data = {
+                        "Frame": frame_number,
+                        "Pose Coordinates": [],
+                        "Left Hand Coordinates": [],
+                        "Right Hand Coordinates": []
+                    }
+                    
+                    # Extract Pose (Shoulders, Elbows, Wrists)
+                    if pose_result.pose_landmarks and len(pose_result.pose_landmarks) > 0:
+                        landmarks = pose_result.pose_landmarks[0]
+                        for idx, landmark in enumerate(landmarks):
+                            if idx in [11, 12, 13, 14, 15, 16]: 
+                                frame_data["Pose Coordinates"].append({
+                                    "Joint Index": idx,
+                                    "Coordinates": [landmark.x, landmark.y, landmark.z]
+                                })
+
+                    # Extract Hands
+                    if hand_result.hand_landmarks:
+                        for i in range(len(hand_result.hand_landmarks)):
+                            hand_landmarks = hand_result.hand_landmarks[i]
+                            handedness = hand_result.handedness[i][0].category_name
                             
-                        if handedness == "Left":
-                            frame_data["Left Hand Coordinates"] = coords
-                        else:
-                            frame_data["Right Hand Coordinates"] = coords
+                            coords = []
+                            for idx, landmark in enumerate(hand_landmarks):
+                                coords.append({
+                                    "Joint Index": idx,
+                                    "Coordinates": [landmark.x, landmark.y, landmark.z]
+                                })
+                                
+                            if handedness == "Left":
+                                frame_data["Left Hand Coordinates"] = coords
+                            else:
+                                frame_data["Right Hand Coordinates"] = coords
+                    
+                    word_frames.append(frame_data)
+                    frame_number += 1
+                    
+                cap.release()
                 
-                word_frames.append(frame_data)
-                frame_number += 1
-                
-            cap.release()
+                if len(word_frames) > 0:
+                    word_sequences.append(word_frames)
             
-            if len(word_frames) > 0:
-                all_words_data[word] = word_frames
+            if len(word_sequences) > 0:
+                all_words_data[word] = word_sequences[0]
+                training_data[word] = word_sequences
                 
-                # Save progress periodically (e.g., every 50 words to not slow down too much)
+                # Save progress periodically
                 if len(all_words_data) % 50 == 0:
                     with open(output_json_path, 'w') as f:
                         json.dump(all_words_data, f, indent=4)
+                    with open(output_training_json_path, 'w') as f:
+                        json.dump(training_data, f, indent=4)
                         
     # Final save
     with open(output_json_path, 'w') as f:
         json.dump(all_words_data, f, indent=4)
+    with open(output_training_json_path, 'w') as f:
+        json.dump(training_data, f, indent=4)
         
-    print(f"Successfully processed {len(all_words_data)} words and saved to {output_json_path}")
+    print(f"Successfully processed {len(all_words_data)} words and saved to {output_json_path} and {output_training_json_path}")
 
 if __name__ == '__main__':
     dataset_dir = 'dataset'
     output_file = 'static/json/reference_holistic.json'
+    training_output_file = 'static/json/training_reference_holistic.json'
     
     if os.path.exists(dataset_dir):
-        process_dataset(dataset_dir, output_file)
+        process_dataset(dataset_dir, output_file, training_output_file)
     else:
         print(f"Error: Could not find dataset directory at {dataset_dir}")

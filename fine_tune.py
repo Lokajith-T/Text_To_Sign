@@ -132,6 +132,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     if args.holistic:
-        train_model(json_path='static/json/reference_holistic.json', save_path='asl_transformer_model_holistic.pt', holistic=True)
+        train_model(json_path='static/json/training_reference_holistic.json', save_path='asl_transformer_model_holistic.pt', holistic=True)
     else:
         train_model()

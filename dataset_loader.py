@@ -69,24 +69,33 @@ class ASLDataset(Dataset):
     def _prepare_data(self):
         feature_dim = 144 if self.holistic else 126
         for word in self.words:
-            frames = self.raw_data[word]
-            seq_feat = []
-            for frame in frames:
-                feat = self._extract_frame_features(frame)
-                seq_feat.append(feat)
-                
-            seq_feat = np.array(seq_feat, dtype=np.float32) # shape: (num_frames, feature_dim)
+            sequences = self.raw_data[word]
             
-            # Pad or truncate to max_seq_len
-            seq_len = seq_feat.shape[0]
-            if seq_len < self.max_seq_len:
-                padding = np.zeros((self.max_seq_len - seq_len, feature_dim), dtype=np.float32)
-                padded_seq = np.vstack([seq_feat, padding])
-            else:
-                padded_seq = seq_feat[:self.max_seq_len]
+            # Check if this is a single sequence or a list of sequences
+            if len(sequences) > 0 and isinstance(sequences[0], dict):
+                sequences = [sequences]
                 
-            self.samples.append(padded_seq)
-            self.labels.append(self.word_to_idx[word])
+            for frames in sequences:
+                if len(frames) == 0:
+                    continue
+                    
+                seq_feat = []
+                for frame in frames:
+                    feat = self._extract_frame_features(frame)
+                    seq_feat.append(feat)
+                    
+                seq_feat = np.array(seq_feat, dtype=np.float32) # shape: (num_frames, feature_dim)
+                
+                # Pad or truncate to max_seq_len
+                seq_len = seq_feat.shape[0]
+                if seq_len < self.max_seq_len:
+                    padding = np.zeros((self.max_seq_len - seq_len, feature_dim), dtype=np.float32)
+                    padded_seq = np.vstack([seq_feat, padding])
+                else:
+                    padded_seq = seq_feat[:self.max_seq_len]
+                    
+                self.samples.append(padded_seq)
+                self.labels.append(self.word_to_idx[word])
 
     def __len__(self):
         return len(self.samples)
