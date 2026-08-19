@@ -1,0 +1,2 @@
+static/json/*.json filter=lfs diff=lfs merge=lfs -text
+static/json/*.pkl filter=lfs diff=lfs merge=lfs -text

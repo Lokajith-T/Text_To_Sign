@@ -5,17 +5,8 @@ __pycache__/
 hand_landmarker.task
 .ipynb_checkpoints/
 word videos/
-
-
 pose_landmarker_heavy.task
 dataset/
 *.pt
-static/json/reference.pkl
-
-
-
 static/json/reference.json
 static/json/reference.pkl
-
-static/json/*.json
-static/json/*.pkl
